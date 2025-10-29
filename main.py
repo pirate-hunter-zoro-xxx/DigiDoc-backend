@@ -136,6 +136,54 @@ async def debug_database():
         }
 
 
+@app.post("/debug/login")
+async def debug_login(credentials: dict):
+    """Debug login endpoint to troubleshoot authentication issues"""
+    try:
+        from core.database import get_supabase_client
+        from core.security import verify_password
+        
+        email = credentials.get("email")
+        password = credentials.get("password")
+        
+        if not email or not password:
+            return {
+                "error": "Email and password required",
+                "received": {"email": bool(email), "password": bool(password)}
+            }
+        
+        # Check if user exists
+        supabase = get_supabase_client()
+        user_query = supabase.table("users").select("*").eq("email", email).execute()
+        
+        if not user_query.data:
+            return {
+                "error": "User not found",
+                "email": email,
+                "users_in_db": len(supabase.table("users").select("email").execute().data)
+            }
+        
+        user = user_query.data[0]
+        
+        # Test password verification
+        password_match = verify_password(password, user["password_hash"])
+        
+        return {
+            "user_found": True,
+            "email": email,
+            "user_id": user["id"],
+            "password_match": password_match,
+            "password_hash_length": len(user["password_hash"]),
+            "jwt_secret_set": bool(settings.JWT_SECRET_KEY != "your-secret-key-change-this")
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "type": type(e).__name__
+        }
+
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():
