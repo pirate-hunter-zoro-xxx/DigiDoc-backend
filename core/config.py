@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:8000",
-        "https://your-frontend-domain.vercel.app"
+        "https://digi-doc-three.vercel.app"
     ]
     
     # Supabase Settings
