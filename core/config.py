@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # CORS Settings
     BACKEND_CORS_ORIGINS: List[str] = (
         os.getenv("BACKEND_CORS_ORIGINS", 
-                 "http://localhost:3000,http://localhost:8000,https://digi-1kbbq00yd-sachins-projects-d8cd783c.vercel.app")
+                 "http://localhost:3000,http://localhost:8000,https://digi-1kbbq00yd-sachins-projects-d8cd783c.vercel.app,https://digi-doc-three.vercel.app")
         .split(",")
     )
     
