@@ -43,8 +43,6 @@ async def root():
     }
 
 
-
-
 # Include API v1 router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
@@ -84,6 +82,7 @@ async def login_legacy(credentials: dict):
 async def health_legacy():
     """Legacy health endpoint"""
     return {"status": "healthy"}
+
 
 
 
