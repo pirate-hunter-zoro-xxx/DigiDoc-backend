@@ -27,11 +27,11 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
     
     # CORS Settings
-    BACKEND_CORS_ORIGINS: List[str] = (
-        os.getenv("BACKEND_CORS_ORIGINS", 
-                 "http://localhost:3000,http://localhost:8000,https://digi-1kbbq00yd-sachins-projects-d8cd783c.vercel.app,https://digi-doc-three.vercel.app,https://digi-qw5oukg3v-sachins-projects-d8cd783c.vercel.app")
-        .split(",")
-    )
+    BACKEND_CORS_ORIGINS: List[str] = [
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "https://your-frontend-domain.vercel.app"
+    ]
     
     # Supabase Settings
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")

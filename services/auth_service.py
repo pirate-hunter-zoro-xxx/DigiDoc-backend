@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any
+from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from core.database import get_supabase_client
 from core.security import get_password_hash, verify_password, create_access_token, create_refresh_token
@@ -53,18 +54,26 @@ class AuthService:
             
             user = new_user.data[0]
             
-            # Create tokens
+            # Create tokens with embedded user data
             access_token = create_access_token(
-                data={"sub": user["email"], "user_id": str(user["id"])}
+                data={"sub": user["email"], "user_id": str(user["id"])},
+                user_data={
+                    "name": user["name"],
+                    "role": user.get("role", "user"),
+                    "is_active": user.get("is_active", True)
+                }
             )
             refresh_token = create_refresh_token(
-                data={"sub": user["email"], "user_id": str(user["id"])}
+                data={"sub": user["email"], "user_id": str(user["id"])},
+                user_data={"role": user.get("role", "user")}
             )
             
             user_response = {
                 "id": str(user["id"]),
                 "email": user["email"],
                 "name": user["name"],
+                "role": user.get("role", "user"),
+                "is_active": user.get("is_active", True),
                 "created_at": user["created_at"]
             }
             
@@ -115,18 +124,41 @@ class AuthService:
                     detail="Invalid email or password"
                 )
             
-            # Create tokens
+            # Check if user is active
+            if not user.get("is_active", False):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Account is inactive. Please contact administrator."
+                )
+            
+            # Update last login timestamp
+            try:
+                self.supabase.table("users").update({
+                    "last_login_at": datetime.now(timezone.utc).isoformat()
+                }).eq("id", user["id"]).execute()
+            except Exception:
+                pass  # Don't fail login if timestamp update fails
+            
+            # Create tokens with embedded user data
             access_token = create_access_token(
-                data={"sub": user["email"], "user_id": str(user["id"])}
+                data={"sub": user["email"], "user_id": str(user["id"])},
+                user_data={
+                    "name": user["name"],
+                    "role": user.get("role", "user"),
+                    "is_active": user.get("is_active", True)
+                }
             )
             refresh_token = create_refresh_token(
-                data={"sub": user["email"], "user_id": str(user["id"])}
+                data={"sub": user["email"], "user_id": str(user["id"])},
+                user_data={"role": user.get("role", "user")}
             )
             
             user_response = {
                 "id": str(user["id"]),
                 "email": user["email"],
                 "name": user["name"],
+                "role": user.get("role", "user"),
+                "is_active": user.get("is_active", True),
                 "created_at": user["created_at"]
             }
             
@@ -169,9 +201,27 @@ class AuthService:
                 detail="Invalid refresh token"
             )
         
-        # Create new access token
+        # For refresh, we need to query DB to get latest user data
+        # This is acceptable as refresh happens infrequently
+        role = payload.get("role", "user")
+        try:
+            user_query = self.supabase.table("users").select("name, role, is_active").eq("id", payload["user_id"]).execute()
+            if user_query.data:
+                user_info = user_query.data[0]
+                user_data = {
+                    "name": user_info.get("name", "Unknown"),
+                    "role": user_info.get("role", "user"),
+                    "is_active": user_info.get("is_active", True)
+                }
+            else:
+                user_data = {"name": "Unknown", "role": role, "is_active": True}
+        except Exception:
+            user_data = {"name": "Unknown", "role": role, "is_active": True}
+        
+        # Create new access token with current user data
         access_token = create_access_token(
-            data={"sub": payload["sub"], "user_id": payload["user_id"]}
+            data={"sub": payload["sub"], "user_id": payload["user_id"]},
+            user_data=user_data
         )
         
         return {

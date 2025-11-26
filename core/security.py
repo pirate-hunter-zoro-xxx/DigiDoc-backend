@@ -35,13 +35,18 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    data: Dict[str, Any], 
+    expires_delta: Optional[timedelta] = None, 
+    user_data: Optional[Dict[str, Any]] = None
+) -> str:
     """
-    Create a JWT access token
+    Create a JWT access token with embedded user data (no DB query needed)
     
     Args:
-        data: The data to encode in the token
+        data: The data to encode in the token (sub, user_id)
         expires_delta: Optional custom expiration time
+        user_data: Optional full user data to embed in token (name, role, is_active)
         
     Returns:
         The encoded JWT token
@@ -54,17 +59,25 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
         expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({"exp": expire, "type": "access"})
+    
+    # Embed user data in token to eliminate database queries
+    if user_data:
+        to_encode["name"] = user_data.get("name")
+        to_encode["role"] = user_data.get("role", "user")
+        to_encode["is_active"] = user_data.get("is_active", True)
+    
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     
     return encoded_jwt
 
 
-def create_refresh_token(data: Dict[str, Any]) -> str:
+def create_refresh_token(data: Dict[str, Any], user_data: Optional[Dict[str, Any]] = None) -> str:
     """
     Create a JWT refresh token
     
     Args:
         data: The data to encode in the token
+        user_data: Optional user data to embed (for consistency)
         
     Returns:
         The encoded JWT refresh token
@@ -73,6 +86,11 @@ def create_refresh_token(data: Dict[str, Any]) -> str:
     expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     
     to_encode.update({"exp": expire, "type": "refresh"})
+    
+    # Optionally embed minimal user data for refresh tokens
+    if user_data:
+        to_encode["role"] = user_data.get("role", "user")
+    
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     
     return encoded_jwt
@@ -87,7 +105,7 @@ def verify_token(token: str, token_type: str = "access") -> Optional[Dict[str, A
         token_type: The expected token type ("access" or "refresh")
         
     Returns:
-        The decoded token payload if valid, None otherwise
+        The decoded token payload if valid (includes role), None otherwise
     """
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
@@ -95,7 +113,9 @@ def verify_token(token: str, token_type: str = "access") -> Optional[Dict[str, A
         # Check if token type matches
         if payload.get("type") != token_type:
             return None
-            
+        
+        # Role field is optional for backward compatibility during migration
+        # but should be present in all new tokens
         return payload
     except JWTError:
         return None
