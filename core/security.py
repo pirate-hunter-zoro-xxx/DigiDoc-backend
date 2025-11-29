@@ -46,7 +46,7 @@ def create_access_token(
     Args:
         data: The data to encode in the token (sub, user_id)
         expires_delta: Optional custom expiration time
-        user_data: Optional full user data to embed in token (name, role, is_active)
+        user_data: Optional full user data to embed in token (name, role, is_active, organization_id)
         
     Returns:
         The encoded JWT token
@@ -65,6 +65,7 @@ def create_access_token(
         to_encode["name"] = user_data.get("name")
         to_encode["role"] = user_data.get("role", "user")
         to_encode["is_active"] = user_data.get("is_active", True)
+        to_encode["organization_id"] = user_data.get("organization_id")
     
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     
@@ -77,7 +78,7 @@ def create_refresh_token(data: Dict[str, Any], user_data: Optional[Dict[str, Any
     
     Args:
         data: The data to encode in the token
-        user_data: Optional user data to embed (for consistency)
+        user_data: Optional user data to embed (role, organization_id)
         
     Returns:
         The encoded JWT refresh token
@@ -87,9 +88,10 @@ def create_refresh_token(data: Dict[str, Any], user_data: Optional[Dict[str, Any
     
     to_encode.update({"exp": expire, "type": "refresh"})
     
-    # Optionally embed minimal user data for refresh tokens
+    # Embed minimal user data for refresh tokens
     if user_data:
         to_encode["role"] = user_data.get("role", "user")
+        to_encode["organization_id"] = user_data.get("organization_id")
     
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     

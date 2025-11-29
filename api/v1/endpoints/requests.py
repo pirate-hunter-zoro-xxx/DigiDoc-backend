@@ -65,7 +65,8 @@ async def list_requests(
         status_filter,
         page,
         page_size,
-        created_by_me
+        created_by_me,
+        requesting_user=current_user
     )
 
 

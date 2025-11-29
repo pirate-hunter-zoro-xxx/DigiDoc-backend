@@ -1,15 +1,12 @@
 from typing import Dict, List, Optional
 from fastapi import HTTPException, status
-from core.database import get_supabase_client
 from core.security import get_password_hash, verify_password
 from models.user import UserInDB, UserCreate, UserUpdate, UserPasswordChange, UserResponse
+from services.base_service import BaseService
 
 
-class UserService:
+class UserService(BaseService):
     """Service for user management operations"""
-    
-    def __init__(self):
-        self.supabase = get_supabase_client()
     
     async def get_user_by_id(self, user_id: str) -> Optional[UserInDB]:
         """
@@ -61,15 +58,17 @@ class UserService:
         self,
         search_term: Optional[str] = None,
         exclude_user_id: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
+        organization_id: Optional[str] = None
     ) -> Dict[str, any]:
         """
-        Search users by name or email
+        Search users by name or email within the same organization
         
         Args:
             search_term: Optional search term for name or email
             exclude_user_id: Optional user ID to exclude from results
             limit: Maximum number of results (default 50)
+            organization_id: Filter by organization (multi-tenant isolation)
             
         Returns:
             Dictionary with users list and total count
@@ -77,6 +76,10 @@ class UserService:
         try:
             # Start with base query
             query = self.supabase.table("users").select("id, name, email, created_at")
+            
+            # CRITICAL: Filter by organization (multi-tenant isolation)
+            if organization_id:
+                query = query.eq("organization_id", organization_id)
             
             # Apply search filter if provided
             if search_term:

@@ -12,7 +12,7 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Configure 
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -36,43 +36,6 @@ async def root():
 
 # Include API v1 router
 app.include_router(api_router, prefix=settings.API_V1_STR)
-
-
-# Backward compatibility routes (optional - can be removed later)
-@app.post("/api/register")
-async def register_legacy(user_data: dict):
-    """Legacy endpoint - redirects to new structure"""
-    from models.user import UserCreate
-    from services.auth_service import auth_service
-    user = UserCreate(**user_data)
-    result = await auth_service.register_user(user)
-    # Return in old format for frontend compatibility
-    return {
-        "message": result.message,
-        "user": result.user,
-        "token": result.access_token
-    }
-
-
-@app.post("/api/login")
-async def login_legacy(credentials: dict):
-    """Legacy endpoint - redirects to new structure"""
-    from models.user import UserLogin
-    from services.auth_service import auth_service
-    creds = UserLogin(**credentials)
-    result = await auth_service.login_user(creds)
-    # Return in old format for frontend compatibility
-    return {
-        "message": result.message,
-        "user": result.user,
-        "token": result.access_token
-    }
-
-
-@app.get("/health")
-async def health_legacy():
-    """Legacy health endpoint"""
-    return {"status": "healthy"}
 
 
 # Startup event

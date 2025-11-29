@@ -15,7 +15,7 @@ async def list_users(
     current_user: UserInDB = Depends(get_current_active_user)
 ):
     """
-    List all users with optional search and filtering
+    List users in the same organization with optional search and filtering
     
     Requires: Valid access token in Authorization header
     
@@ -25,12 +25,15 @@ async def list_users(
     - **limit**: Maximum results to return (1-100, default: 50)
     
     Returns: List of users with id, name, email, created_at
+    
+    Note: Only returns users from the same organization (multi-tenant isolation)
     """
     exclude_user_id = current_user.id if exclude_self else None
     return await user_service.search_users(
         search_term=search,
         exclude_user_id=exclude_user_id,
-        limit=limit
+        limit=limit,
+        organization_id=current_user.organization_id
     )
 
 

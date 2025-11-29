@@ -20,13 +20,16 @@ async def get_admin_statistics(
     **Required Role:** Admin or Super Admin
     
     Returns:
-        - Total user counts
+        - Total user counts (filtered by organization for regular admins)
         - Users by role (super_admin, admin, user)
         - Active/inactive counts
         - New users (today, this week, this month)
         - Recent user registrations
+        
+    Note: Regular admins only see their organization's stats.
+          Super admins see global stats across all organizations.
     """
-    return await user_management_service.get_admin_stats()
+    return await user_management_service.get_admin_stats(current_user)
 
 
 @router.get("/users", response_model=UserListResponse)
@@ -60,7 +63,8 @@ async def list_users(
         limit=limit,
         role_filter=role,
         is_active_filter=is_active,
-        search_query=search
+        search_query=search,
+        requesting_user=current_user
     )
 
 
@@ -80,7 +84,7 @@ async def get_user(
     Returns:
         - User details (excluding password)
     """
-    return await user_management_service.get_user_by_id(user_id)
+    return await user_management_service.get_user_by_id(user_id, requesting_user=current_user)
 
 
 @router.post("/users", response_model=UserResponse, status_code=201)

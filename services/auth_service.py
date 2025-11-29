@@ -1,17 +1,14 @@
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
-from core.database import get_supabase_client
 from core.security import get_password_hash, verify_password, create_access_token, create_refresh_token
 from models.user import UserCreate, UserLogin, UserInDB, UserResponse
 from models.token import AuthResponse
+from services.base_service import BaseService
 
 
-class AuthService:
+class AuthService(BaseService):
     """Service for authentication operations"""
-    
-    def __init__(self):
-        self.supabase = get_supabase_client()
     
     async def register_user(self, user_data: UserCreate) -> AuthResponse:
         """
@@ -36,14 +33,19 @@ class AuthService:
                     detail="Email already registered"
                 )
             
+            # Get or create default organization
+            from services.organization_service import organization_service
+            default_org_id = await organization_service.get_or_create_default_organization()
+            
             # Hash the password
             password_hash = get_password_hash(user_data.password)
             
-            # Insert user into database
+            # Insert user into database WITH organization_id
             new_user = self.supabase.table("users").insert({
                 "email": user_data.email,
                 "name": user_data.name,
-                "password_hash": password_hash
+                "password_hash": password_hash,
+                "organization_id": default_org_id
             }).execute()
             
             if not new_user.data:
@@ -54,18 +56,22 @@ class AuthService:
             
             user = new_user.data[0]
             
-            # Create tokens with embedded user data
+            # Create tokens with embedded user data (including organization_id)
             access_token = create_access_token(
                 data={"sub": user["email"], "user_id": str(user["id"])},
                 user_data={
                     "name": user["name"],
                     "role": user.get("role", "user"),
-                    "is_active": user.get("is_active", True)
+                    "is_active": user.get("is_active", True),
+                    "organization_id": user.get("organization_id")
                 }
             )
             refresh_token = create_refresh_token(
                 data={"sub": user["email"], "user_id": str(user["id"])},
-                user_data={"role": user.get("role", "user")}
+                user_data={
+                    "role": user.get("role", "user"),
+                    "organization_id": user.get("organization_id")
+                }
             )
             
             user_response = {
@@ -74,6 +80,7 @@ class AuthService:
                 "name": user["name"],
                 "role": user.get("role", "user"),
                 "is_active": user.get("is_active", True),
+                "organization_id": str(user.get("organization_id")) if user.get("organization_id") else None,
                 "created_at": user["created_at"]
             }
             
@@ -139,18 +146,22 @@ class AuthService:
             except Exception:
                 pass  # Don't fail login if timestamp update fails
             
-            # Create tokens with embedded user data
+            # Create tokens with embedded user data (including organization_id)
             access_token = create_access_token(
                 data={"sub": user["email"], "user_id": str(user["id"])},
                 user_data={
                     "name": user["name"],
                     "role": user.get("role", "user"),
-                    "is_active": user.get("is_active", True)
+                    "is_active": user.get("is_active", True),
+                    "organization_id": user.get("organization_id")
                 }
             )
             refresh_token = create_refresh_token(
                 data={"sub": user["email"], "user_id": str(user["id"])},
-                user_data={"role": user.get("role", "user")}
+                user_data={
+                    "role": user.get("role", "user"),
+                    "organization_id": user.get("organization_id")
+                }
             )
             
             user_response = {
@@ -159,6 +170,7 @@ class AuthService:
                 "name": user["name"],
                 "role": user.get("role", "user"),
                 "is_active": user.get("is_active", True),
+                "organization_id": str(user.get("organization_id")) if user.get("organization_id") else None,
                 "created_at": user["created_at"]
             }
             

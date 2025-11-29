@@ -5,19 +5,17 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
-from core.database import get_supabase_client
 from models.request import (
     RequestStatus, StageStatus, StageAction, StageType,
     WorkflowStageUpdate, WorkflowStageResponse, RequestSubmitResponse,
     RequestCancelResponse, PendingActionResponse, PendingActionsListResponse
 )
+from services.base_service import BaseService
+from utils.organization_validation import get_user_organization_id, validate_organization_access
 
 
-class WorkflowService:
+class WorkflowService(BaseService):
     """Service for handling workflow operations"""
-
-    def __init__(self):
-        self.supabase = get_supabase_client()
 
     async def submit_request(
         self,
@@ -35,6 +33,9 @@ class WorkflowService:
             Submit response with next stage info
         """
         try:
+            # Get user's organization for validation
+            user_org_id = await get_user_organization_id(user_id)
+            
             # Get request
             result = self.supabase.table("requests").select("*").eq("id", request_id).execute()
             
@@ -45,6 +46,9 @@ class WorkflowService:
                 )
             
             request = result.data[0]
+            
+            # Validate organization access
+            validate_organization_access(user_org_id, request.get("organization_id"))
             
             # Check if user is creator
             if request["creator_id"] != user_id:
@@ -141,6 +145,9 @@ class WorkflowService:
             Action result with next stage info
         """
         try:
+            # Get user's organization for validation
+            user_org_id = await get_user_organization_id(user_id)
+            
             # Get stage
             stage_result = self.supabase.table("workflow_stages").select("*").eq("id", stage_id).execute()
             
@@ -151,6 +158,9 @@ class WorkflowService:
                 )
             
             stage = stage_result.data[0]
+            
+            # Validate organization access for the stage
+            validate_organization_access(user_org_id, stage.get("organization_id"))
             
             # Check if user is assigned to this stage
             if stage["assigned_user_id"] != user_id:
@@ -324,11 +334,14 @@ class WorkflowService:
             stage_type_filter: Optional filter by stage type
             
         Returns:
-            List of pending actions
+            List of pending actions (filtered by organization)
         """
         try:
-            # Get stages assigned to user that are IN_PROGRESS
-            query = self.supabase.table("workflow_stages").select("*").eq("assigned_user_id", user_id).eq("status", StageStatus.IN_PROGRESS.value)
+            # Get user's organization for filtering
+            user_org_id = await get_user_organization_id(user_id)
+            
+            # Get stages assigned to user that are IN_PROGRESS (with organization filter)
+            query = self.supabase.table("workflow_stages").select("*").eq("assigned_user_id", user_id).eq("status", StageStatus.IN_PROGRESS.value).eq("organization_id", user_org_id)
             
             if stage_type_filter:
                 query = query.eq("stage_type", stage_type_filter.value)
@@ -406,6 +419,9 @@ class WorkflowService:
             Cancel response
         """
         try:
+            # Get user's organization for validation
+            user_org_id = await get_user_organization_id(user_id)
+            
             # Get request
             result = self.supabase.table("requests").select("*").eq("id", request_id).execute()
             
@@ -416,6 +432,9 @@ class WorkflowService:
                 )
             
             request = result.data[0]
+            
+            # Validate organization access
+            validate_organization_access(user_org_id, request.get("organization_id"))
             
             # Check if user is creator
             if request["creator_id"] != user_id:
@@ -473,9 +492,17 @@ class WorkflowService:
             user_id: ID of the user requesting history
             
         Returns:
-            List of workflow stages in order
+            List of workflow stages in order (filtered by organization)
         """
         try:
+            # Validate organization access first
+            await validate_organization_access(
+                self.supabase,
+                user_id,
+                request_id,
+                "requests"
+            )
+            
             # Check if user has access
             has_access = await self._check_user_access(request_id, user_id)
             if not has_access:

@@ -25,7 +25,7 @@ INSERT INTO users (
     updated_at
 ) VALUES (
     'Super Admin',
-    'admin@digidoc.com',
+    'x',
     '$2b$12$ZBgynLK79VKduyhSltfcBew6P9bgTg5AoEzhCuPI5KxqjpF9AGkxi',
     'super_admin',
     true,

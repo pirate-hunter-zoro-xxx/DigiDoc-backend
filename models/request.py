@@ -224,7 +224,7 @@ class RequestDetailResponse(RequestResponse):
 
 class RequestListResponse(BaseModel):
     """Schema for paginated request list response"""
-    requests: List[RequestResponse]
+    data: List[RequestResponse]
     total: int
     page: int
     page_size: int
@@ -233,7 +233,7 @@ class RequestListResponse(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "requests": [],
+                "data": [],
                 "total": 50,
                 "page": 1,
                 "page_size": 10,

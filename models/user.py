@@ -53,6 +53,7 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: str
     last_login_at: Optional[str] = None
+    organization_id: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -69,6 +70,7 @@ class UserInDB(BaseModel):
     updated_at: Optional[str] = None
     last_login_at: Optional[str] = None
     updated_by: Optional[str] = None
+    organization_id: Optional[str] = None
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -84,6 +86,7 @@ class UserCreateByAdmin(BaseModel):
     password: str = Field(..., min_length=8, max_length=100)
     role: UserRole = UserRole.USER
     is_active: bool = True
+    organization_id: Optional[str] = None
 
     def validate_role_permission(self, admin_role: UserRole) -> bool:
         """
@@ -104,6 +107,24 @@ class UserCreateByAdmin(BaseModel):
             return False
         
         return True
+
+    def validate_organization(self, admin_role: UserRole) -> None:
+        """
+        Validate organization_id requirement based on role
+        
+        Args:
+            admin_role: Role of the admin creating the user
+            
+        Raises:
+            ValueError: If validation fails
+        """
+        # Super admins can exist without organization (system-wide access)
+        if self.role == UserRole.SUPER_ADMIN:
+            return
+        
+        # All other users must have organization_id
+        if not self.organization_id:
+            raise ValueError("organization_id is required for non-super-admin users")
 
     class Config:
         json_schema_extra = {
@@ -160,7 +181,7 @@ class UserStatusUpdate(BaseModel):
 
 class UserListResponse(BaseModel):
     """Model for paginated user list"""
-    users: List[UserResponse]
+    data: List[UserResponse]  # Changed from 'users' to 'data' for consistency
     total: int
     page: int
     page_size: int
@@ -169,7 +190,7 @@ class UserListResponse(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "users": [],
+                "data": [],
                 "total": 50,
                 "page": 1,
                 "page_size": 20,

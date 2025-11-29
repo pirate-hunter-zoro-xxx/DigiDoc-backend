@@ -1,20 +1,23 @@
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, status
-from core.database import get_supabase_client
 from core.security import get_password_hash
 from models.user import (
     UserRole, UserInDB, UserResponse, UserCreateByAdmin,
     UserUpdateByAdmin, UserRoleUpdate, UserStatusUpdate,
     UserListResponse, AdminStatsResponse
 )
+from services.base_service import BaseService
 
 
-class UserManagementService:
+class UserManagementService(BaseService):
     """Service for admin user management operations"""
     
-    def __init__(self):
-        self.supabase = get_supabase_client()
+    def _apply_organization_filter(self, query, user: UserInDB):
+        """Apply organization filter unless super admin"""
+        if user.role != UserRole.SUPER_ADMIN:
+            query = query.eq("organization_id", user.organization_id)
+        return query
     
     async def list_users(
         self,
@@ -22,7 +25,8 @@ class UserManagementService:
         limit: int = 50,
         role_filter: Optional[str] = None,
         is_active_filter: Optional[bool] = None,
-        search_query: Optional[str] = None
+        search_query: Optional[str] = None,
+        requesting_user: Optional[UserInDB] = None
     ) -> UserListResponse:
         """
         Get paginated list of users with optional filters
@@ -33,6 +37,7 @@ class UserManagementService:
             role_filter: Filter by role (super_admin, admin, user)
             is_active_filter: Filter by active status
             search_query: Search in name or email
+            requesting_user: The user making the request (for organization filtering)
             
         Returns:
             UserListResponse with total count and user list
@@ -43,6 +48,10 @@ class UserManagementService:
         try:
             # Build query
             query = self.supabase.table("users").select("*", count="exact")
+            
+            # Apply organization filter
+            if requesting_user:
+                query = self._apply_organization_filter(query, requesting_user)
             
             # Apply filters
             if role_filter:
@@ -74,7 +83,7 @@ class UserManagementService:
             
             return UserListResponse(
                 total=total,
-                users=users,
+                data=users,  # Changed from 'users' to 'data' for consistency
                 page=page,
                 page_size=limit,
                 total_pages=total_pages
@@ -86,12 +95,13 @@ class UserManagementService:
                 detail=f"Error fetching users: {str(e)}"
             )
     
-    async def get_user_by_id(self, user_id: str) -> UserResponse:
+    async def get_user_by_id(self, user_id: str, requesting_user: Optional[UserInDB] = None) -> UserResponse:
         """
         Get a single user by ID
         
         Args:
             user_id: The user's unique identifier
+            requesting_user: The user making the request (for organization filtering)
             
         Returns:
             UserResponse with user details
@@ -109,6 +119,15 @@ class UserManagementService:
                 )
             
             user_data = result.data[0]
+            
+            # Check organization access
+            if requesting_user and requesting_user.role != UserRole.SUPER_ADMIN:
+                if user_data.get("organization_id") != requesting_user.organization_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Cannot access users from other organizations"
+                    )
+            
             # Exclude password_hash
             user_dict = {k: v for k, v in user_data.items() if k != "password_hash"}
             
@@ -144,6 +163,13 @@ class UserManagementService:
             # Validate admin has permission to create user with this role
             user_data.validate_role_permission(admin_user.role)
             
+            # Validate organization requirement
+            user_data.validate_organization(admin_user.role)
+            
+            # If org admin, force their organization
+            if admin_user.role == UserRole.ADMIN:
+                user_data.organization_id = admin_user.organization_id
+            
             # Check if email already exists
             existing = self.supabase.table("users").select("id").eq("email", user_data.email).execute()
             if existing.data:
@@ -162,6 +188,7 @@ class UserManagementService:
                 "password_hash": password_hash,
                 "role": user_data.role.value,
                 "is_active": True,
+                "organization_id": user_data.organization_id,
                 "created_by": str(admin_user.id)
             }
             
@@ -213,8 +240,14 @@ class UserManagementService:
             HTTPException: If validation fails or user not found
         """
         try:
-            # Fetch existing user
-            existing_result = self.supabase.table("users").select("*").eq("id", user_id).execute()
+            # Fetch existing user (with organization filter to prevent enumeration)
+            query = self.supabase.table("users").select("*").eq("id", user_id)
+            
+            # Non-super admins can only access users in their organization
+            if admin_user.role != UserRole.SUPER_ADMIN:
+                query = query.eq("organization_id", admin_user.organization_id)
+            
+            existing_result = query.execute()
             
             if not existing_result.data:
                 raise HTTPException(
@@ -309,8 +342,14 @@ class UserManagementService:
                     detail="Cannot modify your own role"
                 )
             
-            # Fetch existing user
-            existing_result = self.supabase.table("users").select("*").eq("id", user_id).execute()
+            # Fetch existing user (with organization filter to prevent enumeration)
+            query = self.supabase.table("users").select("*").eq("id", user_id)
+            
+            # Non-super admins can only access users in their organization
+            if admin_user.role != UserRole.SUPER_ADMIN:
+                query = query.eq("organization_id", admin_user.organization_id)
+            
+            existing_result = query.execute()
             
             if not existing_result.data:
                 raise HTTPException(
@@ -388,8 +427,14 @@ class UserManagementService:
                     detail="Cannot modify your own status"
                 )
             
-            # Fetch existing user
-            existing_result = self.supabase.table("users").select("*").eq("id", user_id).execute()
+            # Fetch existing user (with organization filter to prevent enumeration)
+            query = self.supabase.table("users").select("*").eq("id", user_id)
+            
+            # Non-super admins can only access users in their organization
+            if admin_user.role != UserRole.SUPER_ADMIN:
+                query = query.eq("organization_id", admin_user.organization_id)
+            
+            existing_result = query.execute()
             
             if not existing_result.data:
                 raise HTTPException(
@@ -464,8 +509,14 @@ class UserManagementService:
                     detail="Cannot delete your own account"
                 )
             
-            # Fetch existing user
-            existing_result = self.supabase.table("users").select("*").eq("id", user_id).execute()
+            # Fetch existing user (with organization filter to prevent enumeration)
+            query = self.supabase.table("users").select("*").eq("id", user_id)
+            
+            # Non-super admins can only access users in their organization
+            if admin_user.role != UserRole.SUPER_ADMIN:
+                query = query.eq("organization_id", admin_user.organization_id)
+            
+            existing_result = query.execute()
             
             if not existing_result.data:
                 raise HTTPException(
@@ -512,19 +563,29 @@ class UserManagementService:
                 detail=f"Error deleting user: {str(e)}"
             )
     
-    async def get_admin_stats(self) -> AdminStatsResponse:
+    async def get_admin_stats(self, requesting_user: UserInDB) -> AdminStatsResponse:
         """
         Get dashboard statistics for admin
         
+        Args:
+            requesting_user: The admin user requesting stats
+            
         Returns:
             AdminStatsResponse with user counts and metrics
+            (filtered by organization for non-super admins)
             
         Raises:
             HTTPException: If database query fails
         """
         try:
-            # Get all users
-            all_users_result = self.supabase.table("users").select("*").execute()
+            # Get users with organization filter
+            query = self.supabase.table("users").select("*")
+            
+            # Apply organization filter for non-super admins
+            if requesting_user.role != UserRole.SUPER_ADMIN:
+                query = query.eq("organization_id", requesting_user.organization_id)
+            
+            all_users_result = query.execute()
             all_users = all_users_result.data
             
             # Calculate stats
@@ -563,11 +624,19 @@ class UserManagementService:
             
             # Get request counts (from requests table)
             try:
-                requests_result = self.supabase.table("requests").select("id, status", count="exact").execute()
+                requests_query = self.supabase.table("requests").select("id, status", count="exact")
+                if requesting_user.role != UserRole.SUPER_ADMIN:
+                    requests_query = requests_query.eq("organization_id", requesting_user.organization_id)
+                
+                requests_result = requests_query.execute()
                 total_requests = requests_result.count if hasattr(requests_result, 'count') else len(requests_result.data) if requests_result.data else 0
                 
                 # Count pending approvals (requests with status = 'pending')
-                pending_result = self.supabase.table("requests").select("id", count="exact").eq("status", "pending").execute()
+                pending_query = self.supabase.table("requests").select("id", count="exact").eq("status", "pending")
+                if requesting_user.role != UserRole.SUPER_ADMIN:
+                    pending_query = pending_query.eq("organization_id", requesting_user.organization_id)
+                
+                pending_result = pending_query.execute()
                 pending_approvals = pending_result.count if hasattr(pending_result, 'count') else len(pending_result.data) if pending_result.data else 0
             except:
                 # If requests table doesn't exist or error, use 0

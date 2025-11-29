@@ -44,6 +44,7 @@ async def get_current_user(
     name: Optional[str] = payload.get("name")
     role: Optional[str] = payload.get("role")
     is_active: Optional[bool] = payload.get("is_active")
+    organization_id: Optional[str] = payload.get("organization_id")
     
     if email is None or user_id is None:
         raise HTTPException(
@@ -68,7 +69,8 @@ async def get_current_user(
             role=UserRole(role) if role else UserRole.USER,
             is_active=is_active if is_active is not None else True,
             password_hash="",  # Not needed for auth checks
-            created_at=datetime.utcnow().isoformat()  # Not critical for auth
+            created_at=datetime.utcnow().isoformat(),  # Not critical for auth
+            organization_id=organization_id
         )
         
         return user

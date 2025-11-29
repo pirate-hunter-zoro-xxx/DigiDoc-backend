@@ -5,19 +5,17 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from fastapi import HTTPException, status
 
-from core.database import get_supabase_client
 from models.request import (
     RequestCreate, RequestUpdate, RequestResponse, RequestDetailResponse,
     WorkflowStageCreate, WorkflowStageResponse,
     RequestStatus, StageStatus, CommentCreate, CommentResponse
 )
+from utils.organization_validation import get_user_organization_id, validate_organization_access
+from services.base_service import BaseService
 
 
-class RequestService:
+class RequestService(BaseService):
     """Service for handling request operations"""
-
-    def __init__(self):
-        self.supabase = get_supabase_client()
 
     async def create_request(
         self,
@@ -35,12 +33,16 @@ class RequestService:
             Created request with workflow stages
         """
         try:
+            # Get creator's organization (validates user has organization)
+            org_id = await get_user_organization_id(creator_id)
+            
             # Create the request
             request_insert = {
                 "title": request_data.title,
                 "description": request_data.description,
                 "creator_id": creator_id,
-                "status": RequestStatus.DRAFT.value
+                "status": RequestStatus.DRAFT.value,
+                "organization_id": org_id
             }
             
             result = self.supabase.table("requests").insert(request_insert).execute()
@@ -82,7 +84,8 @@ class RequestService:
                         "stage_type": stage.stage_type.value,
                         "assigned_user_id": stage.assigned_user_id,
                         "order_index": stage.order_index,
-                        "status": StageStatus.PENDING.value
+                        "status": StageStatus.PENDING.value,
+                        "organization_id": org_id
                     }
                     for stage in request_data.workflow_stages
                 ]
@@ -140,6 +143,9 @@ class RequestService:
             Request with workflow stages
         """
         try:
+            # Validate user has organization
+            user_org_id = await get_user_organization_id(user_id)
+            
             # Get request
             result = self.supabase.table("requests").select("*").eq("id", request_id).execute()
             
@@ -150,6 +156,10 @@ class RequestService:
                 )
             
             request = result.data[0]
+            
+            # Validate organization access
+            if request.get("organization_id"):
+                validate_organization_access(user_org_id, str(request["organization_id"]))
             
             # Check if user has access (creator or part of workflow)
             has_access = await self._check_user_access(request_id, user_id)
@@ -208,7 +218,8 @@ class RequestService:
         status_filter: Optional[RequestStatus] = None,
         page: int = 1,
         page_size: int = 10,
-        created_by_me: bool = True
+        created_by_me: bool = True,
+        requesting_user: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
         List requests for a user (created by them or assigned to them)
@@ -219,13 +230,26 @@ class RequestService:
             page: Page number (1-indexed)
             page_size: Number of items per page
             created_by_me: If True, show only requests created by user. If False, include assigned requests.
+            requesting_user: The user making the request (for organization filtering)
             
         Returns:
             Dictionary with requests list and pagination info
         """
         try:
+            # Validate user has organization
+            user_org_id = await get_user_organization_id(user_id)
+            
             # Get requests where user is creator
             query = self.supabase.table("requests").select("*", count="exact")
+            
+            # Apply organization filter for non-super admins
+            if requesting_user and hasattr(requesting_user, 'role') and hasattr(requesting_user, 'organization_id'):
+                from models.user import UserRole
+                if requesting_user.role != UserRole.SUPER_ADMIN:
+                    query = query.eq("organization_id", requesting_user.organization_id)
+            else:
+                # Default: filter by user's organization
+                query = query.eq("organization_id", user_org_id)
             
             # Add creator filter
             query = query.eq("creator_id", user_id)
@@ -298,7 +322,7 @@ class RequestService:
             total_pages = (total + page_size - 1) // page_size if total > 0 else 0
             
             return {
-                "requests": formatted_requests,
+                "data": formatted_requests,
                 "total": total,
                 "page": page,
                 "page_size": page_size,
@@ -329,6 +353,9 @@ class RequestService:
             Updated request
         """
         try:
+            # Validate user has organization
+            user_org_id = await get_user_organization_id(user_id)
+            
             # Get request
             result = self.supabase.table("requests").select("*").eq("id", request_id).execute()
             
@@ -339,6 +366,10 @@ class RequestService:
                 )
             
             request = result.data[0]
+            
+            # Validate organization access
+            if request.get("organization_id"):
+                validate_organization_access(user_org_id, str(request["organization_id"]))
             
             # Check if user is creator
             if request["creator_id"] != user_id:
@@ -399,6 +430,9 @@ class RequestService:
             Success message
         """
         try:
+            # Validate user has organization
+            user_org_id = await get_user_organization_id(user_id)
+            
             # Get request
             result = self.supabase.table("requests").select("*").eq("id", request_id).execute()
             
@@ -409,6 +443,10 @@ class RequestService:
                 )
             
             request = result.data[0]
+            
+            # Validate organization access
+            if request.get("organization_id"):
+                validate_organization_access(user_org_id, str(request["organization_id"]))
             
             # Check if user is creator
             if request["creator_id"] != user_id:
@@ -445,6 +483,9 @@ class RequestService:
     ) -> CommentResponse:
         """Add a comment to a request"""
         try:
+            # Validate user has organization
+            user_org_id = await get_user_organization_id(user_id)
+            
             # Check if user has access to request
             has_access = await self._check_user_access(request_id, user_id)
             if not has_access:
@@ -453,11 +494,30 @@ class RequestService:
                     detail="You don't have access to this request"
                 )
             
+            # Get request and validate organization access
+            request_result = self.supabase.table("requests")\
+                .select("organization_id")\
+                .eq("id", request_id)\
+                .execute()
+            
+            if not request_result.data:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Request not found"
+                )
+            
+            org_id = request_result.data[0]["organization_id"]
+            
+            # Validate organization access
+            if org_id:
+                validate_organization_access(user_org_id, str(org_id))
+            
             # Create comment
             comment_insert = {
                 "request_id": request_id,
                 "user_id": user_id,
-                "comment": comment_data.comment
+                "comment": comment_data.comment,
+                "organization_id": org_id
             }
             
             result = self.supabase.table("request_comments").insert(comment_insert).execute()
@@ -500,6 +560,24 @@ class RequestService:
     ) -> List[CommentResponse]:
         """Get all comments for a request"""
         try:
+            # Validate user has organization
+            user_org_id = await get_user_organization_id(user_id)
+            
+            # Validate request exists and user has organization access
+            request_result = self.supabase.table("requests")\
+                .select("organization_id")\
+                .eq("id", request_id)\
+                .execute()
+            
+            if not request_result.data:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Request not found"
+                )
+            
+            if request_result.data[0].get("organization_id"):
+                validate_organization_access(user_org_id, str(request_result.data[0]["organization_id"]))
+            
             # Check if user has access to request
             has_access = await self._check_user_access(request_id, user_id)
             if not has_access:
