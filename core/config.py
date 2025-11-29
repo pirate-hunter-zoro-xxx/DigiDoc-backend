@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:8000",
-        "https://digi-3ettr6gm0-sachins-projects-d8cd783c.vercel.app"  # Fixed: removed trailing slash
+        "https://digi-3ettr6gm0-sachins-projects-d8cd783c.vercel.app",
+        "https://digi-7hewybpwq-sachins-projects-d8cd783c.vercel.app"  # Fixed: removed trailing slash
     ]
     
     # Supabase Settings
